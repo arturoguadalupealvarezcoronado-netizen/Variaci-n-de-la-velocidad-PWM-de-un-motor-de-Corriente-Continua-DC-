@@ -1,0 +1,82 @@
+#define _XTAL_FREQ 4000000
+#include <xc.h>
+
+// ------------------------- CONFIG -------------------------
+__CONFIG(FOSC_XT & WDTE_OFF & PWRTE_ON & BOREN_ON & LVP_OFF);
+
+// ---------------------- ADC INIT --------------------------
+void adc_init(void)
+{
+    ADCON1 = 0b10000101;      // AN0–AN3 analógicos, Vref=Vdd/Vss
+    ADCON0 = 0b10000001;      // ADC encendido, Fosc/32, canal 0
+}
+
+unsigned int adc_read(unsigned char ch)
+{
+    ADCON0 &= 0b11000001;     // Limpia selección de canal
+    ADCON0 |= (ch << 3);      // Selecciona canal
+
+    __delay_ms(2);            // Tiempo de adquisición
+
+    ADCON0bits.GO = 1;        
+    while(ADCON0bits.GO);     // Espera conversión
+
+    return ((ADRESH << 8) | ADRESL);
+}
+
+// ---------------------- PWM INIT --------------------------
+void pwm_init(void)
+{
+    TRISCbits.TRISC2 = 0;     // CCP1 como salida
+
+    PR2 = 249;                // Frecuencia PWM
+    CCP1CON = 0b00001100;     // Modo PWM
+    T2CON = 0b00000101;       // Timer2 ON presc=4
+}
+
+void pwm_set(unsigned int adc)
+{
+    unsigned long duty = ((unsigned long)adc * 1000) / 1023;
+
+    CCPR1L = duty >> 2;
+    CCP1CONbits.CCP1X = (duty >> 1) & 1;
+    CCP1CONbits.CCP1Y = duty & 1;
+}
+
+// ---------------------------- MAIN -------------------------
+void main(void)
+{
+    TRISB = 0xFF;              // Botones
+    TRISA = 0b00000100;        // RA2 = AN2 entrada
+
+    pwm_init();
+    adc_init();
+
+    unsigned int pot = 0;
+
+    while(1)
+    {
+        // --------------------- DIRECCIÓN ---------------------
+        if (RB0 == 1)
+        {
+            RA0 = 1;     // IN1
+            RA1 = 0;     // IN2
+        }
+        else if (RB1 == 1)
+        {
+            RA0 = 0;     // IN1
+            RA1 = 1;     // IN2
+        }
+        else
+        {
+            RA0 = 0;
+            RA1 = 0;     // Motor apagado si no hay orden
+        }
+
+        // ---------------------- VELOCIDAD --------------------
+        pot = adc_read(2);   // AN2
+        pwm_set(pot);
+
+        __delay_ms(10);
+    }
+}
